@@ -1,7 +1,8 @@
-// Base API configuration (supports opening index.html via file:// or Live Server port 5500)
-const API_BASE = (window.location.protocol === 'file:' || window.location.port === '5500' || window.location.port === '3000') 
+// Base API configuration (supports GitHub Pages, localtunnel, file://, or local dev)
+const defaultApi = (window.location.protocol === 'file:' || window.location.port === '5500' || window.location.port === '3000') 
     ? 'http://localhost:8000' 
-    : '';
+    : (window.location.hostname.includes('github.io') ? (localStorage.getItem('API_BASE') || 'https://seven-doors-run.loca.lt') : '');
+let API_BASE = localStorage.getItem('API_BASE') || defaultApi;
 
 // State Management
 let currentLang = 'en';
