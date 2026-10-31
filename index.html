@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Document Analyzer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="glow-container">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+    </div>
+
+    <header class="app-header">
+        <div class="header-logo">
+            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <path d="M16 13H8"/>
+                <path d="M16 17H8"/>
+                <path d="M10 9H8"/>
+            </svg>
+            <h1>LEGAL DOCUMENT ANALYZER</h1>
+        </div>
+        <p class="subtitle">Upload your legal documents and understand them in simple language.</p>
+        <div class="engine-badge-container" style="margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <span id="engine-status" class="engine-status-badge" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; color: #a5b4fc;">Checking AI status...</span>
+            <button id="btn-open-settings" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 4px 12px; font-size: 0.8rem; color: #fff; cursor: pointer; transition: all 0.2s;">⚙️ API Settings</button>
+        </div>
+    </header>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settings-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="background: #131826; border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; padding: 1.5rem; max-width: 480px; width: 90%; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: #60a5fa;">⚙️ AI Engine Settings</h3>
+                <button id="btn-close-settings" style="background: none; border: none; color: #94a3b8; font-size: 1.4rem; cursor: pointer;">&times;</button>
+            </div>
+            <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1rem; line-height: 1.4;">
+                The analyzer includes a built-in offline legal intelligence engine that works automatically without any key. Optionally configure your own Groq or Gemini API key below:
+            </p>
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #cbd5e1;">Provider:</label>
+                <select id="settings-provider" style="width: 100%; padding: 8px; border-radius: 8px; background: #1e293b; color: #fff; border: 1px solid #334155;">
+                    <option value="GROQ">Groq API (Free Llama 3.3)</option>
+                    <option value="GEMINI">Google Gemini API (Free Gemini 2.5 Flash)</option>
+                    <option value="OPENAI">OpenAI API (GPT-4o / GPT-4o-mini)</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 1.2rem;">
+                <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #cbd5e1;">API Key:</label>
+                <input type="password" id="settings-key-input" placeholder="Enter API Key..." style="width: 100%; padding: 8px; border-radius: 8px; background: #1e293b; color: #fff; border: 1px solid #334155;">
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="btn-save-key" style="background: #6366f1; color: #fff; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 500;">Save Key</button>
+            </div>
+        </div>
+    </div>
+
+    <main class="app-container">
+        <!-- UPLOAD SECTION -->
+        <section id="upload-section" class="card upload-card">
+            <div class="supported-types">
+                <span>Rental Agreement</span>
+                <span>Lease Agreement</span>
+                <span>Property Documents</span>
+                <span>Sale Deeds</span>
+                <span>Contracts</span>
+                <span>Legal Notices</span>
+            </div>
+            
+            <div id="drop-zone" class="drop-zone">
+                <input type="file" id="file-input" accept="application/pdf" style="display: none;">
+                <div class="drop-zone-content">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <h3>Upload Your Legal Document (PDF)</h3>
+                    <p>Drag and drop your file here, or <span class="browse-link">browse</span></p>
+                </div>
+            </div>
+
+            <div id="upload-status" class="upload-status hidden">
+                <span class="status-badge">✅ PDF Uploaded Successfully</span>
+                <span id="uploaded-filename" class="filename">document.pdf</span>
+            </div>
+        </section>
+
+        <!-- LOADING SECTION -->
+        <section id="loading-section" class="card loading-card hidden">
+            <div class="radar-container">
+                <div class="radar-ping"></div>
+                <div class="radar-core">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="radar-icon">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 2a10 10 0 0 1 10 10"/>
+                    </svg>
+                </div>
+            </div>
+            <h2>Analyzing Document...</h2>
+            <p id="loading-progress">Reading text and scanning for financial and legal clauses...</p>
+        </section>
+
+        <!-- DASHBOARD SECTION -->
+        <section id="dashboard-section" class="dashboard-grid hidden">
+            <!-- HEADER TABS & CONTROLS -->
+            <div class="dashboard-controls">
+                <div class="language-toggle">
+                    <button id="lang-en" class="toggle-btn active" data-lang="en">English</button>
+                    <button id="lang-ta" class="toggle-btn" data-lang="ta">தமிழ் (Tamil)</button>
+                </div>
+            </div>
+
+            <!-- LEFT WORKSPACE: Analysis Sections -->
+            <div class="analysis-workspace">
+                
+                <!-- SUMMARY CARD -->
+                <div class="card analysis-card" id="summary-card">
+                    <div class="card-header">
+                        <div class="header-title">
+                            <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                                <polyline points="10 9 9 9 8 9"/>
+                            </svg>
+                            <h2 data-en="Document Summary" data-ta="ஆவணத்தின் சுருக்கம்">Document Summary</h2>
+                        </div>
+                        <button id="btn-voice-summary" class="voice-summary-btn hidden" title="Read summary aloud">
+                            <svg class="speaker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                            </svg>
+                            <span>🔊 Voice Summary (Tamil)</span>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <p id="summary-text" class="narrative-text"></p>
+                    </div>
+                </div>
+
+                <!-- RISK SCORE CARD -->
+                <div class="card analysis-card" id="risk-card">
+                    <div class="card-header">
+                        <div class="header-title">
+                            <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/>
+                                <line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                            <h2 data-en="Risk Score Analysis" data-ta="ஆபத்து மதிப்பீடு">Risk Score Analysis</h2>
+                        </div>
+                    </div>
+                    <div class="card-body risk-layout">
+                        <div class="gauge-wrapper">
+                            <div class="risk-gauge">
+                                <svg class="gauge-svg" viewBox="0 0 100 50">
+                                    <path class="gauge-bg" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#2a2f3e" stroke-width="8"/>
+                                    <path id="gauge-fill" class="gauge-fill" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="url(#gauge-gradient)" stroke-width="8" stroke-dasharray="125.6" stroke-dashoffset="125.6"/>
+                                    <defs>
+                                        <linearGradient id="gauge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <stop offset="0%" stop-color="#10b981"/>
+                                            <stop offset="50%" stop-color="#f59e0b"/>
+                                            <stop offset="100%" stop-color="#ef4444"/>
+                                        </linearGradient>
+                                    </defs>
+                                </svg>
+                                <div class="gauge-text">
+                                    <span id="risk-score-value">0</span>
+                                    <span id="risk-level-badge" class="risk-level">Low Risk</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="risk-explanation">
+                            <p id="risk-explanation-text" class="narrative-text"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BEWARE ALERTS CARD -->
+                <div class="card analysis-card" id="alerts-card">
+                    <div class="card-header">
+                        <div class="header-title">
+                            <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                                <line x1="16" y1="2" x2="16" y2="6"/>
+                                <line x1="8" y1="2" x2="8" y2="6"/>
+                                <line x1="3" y1="10" x2="21" y2="10"/>
+                            </svg>
+                            <h2 data-en="Beware Alerts" data-ta="முக்கிய எச்சரிக்கைகள்">Beware Alerts</h2>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="alerts-list" class="alerts-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LEGAL TERMS EXPLAINED CARD -->
+                <div class="card analysis-card" id="terms-card">
+                    <div class="card-header">
+                        <div class="header-title">
+                            <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                                <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5v-15z"/>
+                            </svg>
+                            <h2 data-en="Legal Terms Explained" data-ta="சட்ட விதிமுறைகள் விளக்கம்">Legal Terms Explained</h2>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="terms-grid" class="terms-grid">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- RIGHT WORKSPACE: Chat Assistant -->
+            <div class="chat-workspace">
+                <div class="card chat-card">
+                    <div class="card-header chat-header">
+                        <div class="header-title">
+                            <svg class="header-icon message-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            <h2 data-en="Chat With Your Document" data-ta="ஆவணத்துடன் உரையாடுங்கள்">Chat With Your Document</h2>
+                        </div>
+                        <div class="listening-status hidden" id="listening-indicator">
+                            <div class="listening-pulse"></div>
+                            <span id="listening-text">Listening…</span>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-messages" id="chat-messages">
+                        <!-- Welcome message injected by app.js on document upload -->
+                    </div>
+
+                    <div class="chat-suggestions">
+                        <button class="chip" data-query="What is this document?">What is this document?</button>
+                        <button class="chip" data-query="Is there any penalty?">Is there any penalty?</button>
+                        <button class="chip" data-query="Who pays electricity bill?">Who pays electricity bill?</button>
+                        <button class="chip" data-query="ஆவணத்தில் அபராதம் ஏதும் உண்டா?">ஆவணத்தில் அபராதம் ஏதும் உண்டா?</button>
+                    </div>
+
+                    <div class="chat-input-wrapper">
+                        <button id="btn-mic" class="mic-btn" title="Speak question">
+                            <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                <line x1="8" y1="23" x2="16" y2="23"/>
+                            </svg>
+                        </button>
+                        <input type="text" id="chat-input" placeholder="Ask a question about the document...">
+                        <button id="btn-send" class="send-btn" title="Send question">
+                            <svg class="send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"/>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>&copy; 2026 Legal Document Analyzer - Multilingual AI Assistant</p>
+    </footer>
+
+    <script src="/static/app.js" defer></script>
+</body>
+</html>

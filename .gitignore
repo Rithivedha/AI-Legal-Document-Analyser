@@ -1,0 +1,13 @@
+.env
+*.env
+*.db
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store
+uploads/
+chroma_db/
+.venv/
+env/
+AI-Legal-Document-Analyzer-main/
