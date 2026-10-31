@@ -1,13 +1,52 @@
-.env
-*.env
-*.db
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-*.pyo
-*.log
-.DS_Store
-uploads/
-chroma_db/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
 .venv/
+venv/
+ENV/
 env/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets (Keep your API keys private)
+.env
+.env.*
+!.env.example
+*.env
+
+# SQLite & Cache Databases
+*.db
+*.sqlite3
+analysis.db
+
+# Vector DB & Embeddings Storage
+chroma_db/
+.chroma/
+
+# User Uploaded Documents (Keep documents private)
+uploads/
+*.pdf
+
+# Logs
+*.log
+logs/
+
+# Testing & Scratch Files
+.pytest_cache/
+test_key.py
+
+# IDE & Operating System Files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Extracted archives
 AI-Legal-Document-Analyzer-main/
