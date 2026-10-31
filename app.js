@@ -1,8 +1,14 @@
-// Base API configuration (supports GitHub Pages, localtunnel, file://, or local dev)
+// Base API configuration (supports GitHub Pages, Cloudflare Tunnel, file://, or local dev)
+const CLOUDFLARE_URL = 'https://valid-retailers-answers-sms.trycloudflare.com';
+let storedApi = localStorage.getItem('API_BASE');
+if (storedApi && storedApi.includes('loca.lt')) {
+    localStorage.removeItem('API_BASE');
+    storedApi = null;
+}
 const defaultApi = (window.location.protocol === 'file:' || window.location.port === '5500' || window.location.port === '3000') 
     ? 'http://localhost:8000' 
-    : (window.location.hostname.includes('github.io') ? (localStorage.getItem('API_BASE') || 'https://seven-doors-run.loca.lt') : '');
-let API_BASE = localStorage.getItem('API_BASE') || defaultApi;
+    : (window.location.hostname.includes('github.io') ? CLOUDFLARE_URL : '');
+let API_BASE = storedApi || defaultApi;
 
 // State Management
 let currentLang = 'en';
