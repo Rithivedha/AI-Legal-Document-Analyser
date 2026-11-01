@@ -28,38 +28,12 @@
         </div>
         <p class="subtitle">Upload your legal documents and understand them in simple language.</p>
         <div class="engine-badge-container" style="margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 10px;">
-            <span id="engine-status" class="engine-status-badge" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; color: #a5b4fc;">Checking AI status...</span>
-            <button id="btn-open-settings" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 4px 12px; font-size: 0.8rem; color: #fff; cursor: pointer; transition: all 0.2s;">⚙️ API Settings</button>
+            <span class="engine-status-badge" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); padding: 5px 16px; border-radius: 20px; font-size: 0.82rem; color: #6ee7b7; font-weight: 500; display: inline-flex; align-items: center; gap: 8px;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 8px #10b981;"></span>
+                AI Legal Intelligence &bull; Groq LLaMA 3.3 70B &amp; NLP
+            </span>
         </div>
     </header>
-
-    <!-- SETTINGS MODAL -->
-    <div id="settings-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999;">
-        <div style="background: #131826; border: 1px solid rgba(255,255,255,0.15); border-radius: 14px; padding: 1.5rem; max-width: 480px; width: 90%; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: #60a5fa;">⚙️ AI Engine Settings</h3>
-                <button id="btn-close-settings" style="background: none; border: none; color: #94a3b8; font-size: 1.4rem; cursor: pointer;">&times;</button>
-            </div>
-            <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1rem; line-height: 1.4;">
-                The analyzer includes a built-in offline legal intelligence engine that works automatically without any key. Optionally configure your own Groq or Gemini API key below:
-            </p>
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #cbd5e1;">Provider:</label>
-                <select id="settings-provider" style="width: 100%; padding: 8px; border-radius: 8px; background: #1e293b; color: #fff; border: 1px solid #334155;">
-                    <option value="GROQ">Groq API (Free Llama 3.3)</option>
-                    <option value="GEMINI">Google Gemini API (Free Gemini 2.5 Flash)</option>
-                    <option value="OPENAI">OpenAI API (GPT-4o / GPT-4o-mini)</option>
-                </select>
-            </div>
-            <div style="margin-bottom: 1.2rem;">
-                <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #cbd5e1;">API Key:</label>
-                <input type="password" id="settings-key-input" placeholder="Enter API Key..." style="width: 100%; padding: 8px; border-radius: 8px; background: #1e293b; color: #fff; border: 1px solid #334155;">
-            </div>
-            <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button id="btn-save-key" style="background: #6366f1; color: #fff; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 500;">Save Key</button>
-            </div>
-        </div>
-    </div>
 
     <main class="app-container">
         <!-- UPLOAD SECTION -->

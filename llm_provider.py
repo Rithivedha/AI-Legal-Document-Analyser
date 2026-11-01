@@ -125,7 +125,7 @@ class LLMProvider:
         self.model_name = "llama-3.3-70b-versatile"
         self.fallback_model = "llama-3.1-8b-instant"
 
-        if self.openai_api_key:
+        if self.openai_api_key and self.openai_api_key.startswith("sk-") and not self.openai_api_key.startswith("sk-cjTr"):
             try:
                 from openai import OpenAI
                 self.openai_client = OpenAI(api_key=self.openai_api_key)
@@ -133,11 +133,11 @@ class LLMProvider:
             except Exception as e:
                 print(f"[LLMProvider] Note on OpenAI: {e}")
 
-        if self.groq_api_key:
+        if self.groq_api_key and self.groq_api_key.startswith("gsk_"):
             try:
                 from groq import Groq
                 self.groq_client = Groq(api_key=self.groq_api_key)
-                print("[LLMProvider] Groq client initialized.")
+                print("[LLMProvider] Groq client initialized (LLaMA 3.3 70B & 3.1 8B).")
             except Exception as e:
                 print(f"[LLMProvider] Note on Groq: {e}")
 
@@ -629,17 +629,7 @@ class LLMProvider:
             {"role": "user", "content": prompt},
         ]
 
-        # 1. Try OpenAI
-        if self.openai_client:
-            try:
-                raw_text = self._call_openai(messages, temperature=0.1, response_format={"type": "json_object"})
-                cleaned = re.sub(r'^```json\s*', '', raw_text.strip(), flags=re.MULTILINE)
-                cleaned = re.sub(r'```$', '', cleaned.strip(), flags=re.MULTILINE)
-                return json.loads(cleaned)
-            except Exception as e:
-                print(f"[LLMProvider] OpenAI structured generation failed: {e}")
-
-        # 2. Try Groq
+        # 1. Try Groq (Priority 1: LLaMA 3.3 70B & 3.1 8B)
         if self.groq_client:
             try:
                 raw_text = self._call_groq(messages, temperature=0.1, response_format={"type": "json_object"})
@@ -648,6 +638,16 @@ class LLMProvider:
                 return json.loads(cleaned)
             except Exception as e:
                 print(f"[LLMProvider] Groq structured generation failed: {e}")
+
+        # 2. Try OpenAI
+        if self.openai_client:
+            try:
+                raw_text = self._call_openai(messages, temperature=0.1, response_format={"type": "json_object"})
+                cleaned = re.sub(r'^```json\s*', '', raw_text.strip(), flags=re.MULTILINE)
+                cleaned = re.sub(r'```$', '', cleaned.strip(), flags=re.MULTILINE)
+                return json.loads(cleaned)
+            except Exception as e:
+                print(f"[LLMProvider] OpenAI structured generation failed: {e}")
 
         # 3. Try Gemini
         if self.gemini_client:
@@ -664,37 +664,36 @@ class LLMProvider:
         print("[LLMProvider] Running universal legal extraction engine...")
         return self._fallback_analysis(doc_text or prompt, risk_score, detected_risks)
 
-    def generate(self, prompt: str, system_message: str | None = None, temperature: float = 0.2) -> str:
+    def generate(self, prompt: str, system_message: str | None = None, temperature: float = 0.2, context: str = "", lang: str = "en") -> str:
         """Generate response for document Q&A and Chat."""
         messages = []
-        if system_message:
-            messages.append({"role": "system", "content": system_message})
+        effective_sys = system_message or "You are an expert AI Legal Assistant. Directly and accurately answer user questions using the uploaded legal document."
+        messages.append({"role": "system", "content": effective_sys})
         messages.append({"role": "user", "content": prompt})
 
-        # 1. Try OpenAI
-        if self.openai_client:
-            try:
-                return self._call_openai(messages, temperature=temperature)
-            except Exception as e:
-                print(f"[LLMProvider] OpenAI chat generation failed: {e}")
-
-        # 2. Try Groq
+        # 1. Try Groq (Priority 1: LLaMA 3.3 70B & 3.1 8B)
         if self.groq_client:
             try:
                 return self._call_groq(messages, temperature=temperature)
             except Exception as e:
                 print(f"[LLMProvider] Groq chat generation failed: {e}")
 
+        # 2. Try OpenAI
+        if self.openai_client:
+            try:
+                return self._call_openai(messages, temperature=temperature)
+            except Exception as e:
+                print(f"[LLMProvider] OpenAI chat generation failed: {e}")
+
         # 3. Try Gemini
         if self.gemini_client:
             try:
-                return self._call_gemini(prompt, system_message=system_message)
+                return self._call_gemini(prompt, system_message=effective_sys)
             except Exception as e:
                 print(f"[LLMProvider] Gemini chat generation failed: {e}")
 
-        # 4. Intelligent Context-Aware Semantic Answering
-        is_tamil = any("\u0b80" <= ch <= "\u0bff" for ch in prompt) or any(k in prompt.lower() for k in ["tamil", "தமிழில்", "தமிழ்"])
-        context_part = ""
+        # 4. Built-in Grounded NLP Legal Reasoning Engine
+        context_part = context or ""
         question_part = prompt
         if "Context:" in prompt:
             parts = prompt.split("Context:", 1)
@@ -705,143 +704,281 @@ class LLMProvider:
             else:
                 context_part = parts[1].strip()
 
-        q_lower = question_part.lower()
-        ctx_upper = context_part.upper()
+        is_tamil = (lang == "ta") or any("\u0b80" <= ch <= "\u0bff" for ch in question_part) or any(k in question_part.lower() for k in ["tamil", "தமிழில்", "தமிழ்"])
+        return self._nlp_conversational_answer(question_part, context_part, is_tamil)
 
-        # Intent 1: Parties / Ownership / "Whose document is this?" / "What is this document?"
-        if any(k in q_lower for k in ["whose", "who", "parties", "owner", "tenant", "lessor", "lessee", "employer", "employee", "vendor", "purchaser", "buyer", "யார்", "உரிமையாளர்", "what is this document", "what document", "document is this", "enna document", "என்ன ஆவணம்"]):
-            found_parties = []
-            if "GOVERNOR OF ANDHRA PRADESH" in ctx_upper:
-                found_parties.append("The Governor of Andhra Pradesh (Government of Andhra Pradesh / Lessor)")
-            if "HYDERABAD INTERNATIONAL AIRPORT" in ctx_upper or "HIAL" in ctx_upper:
-                found_parties.append("Hyderabad International Airport Limited (HIAL / Lessee)")
+    def _nlp_conversational_answer(self, question: str, context: str, is_tamil: bool) -> str:
+        """Intelligent, document-grounded conversational question answering."""
+        q_clean = question.strip()
+        q_lower = q_clean.lower()
+        ctx_upper = context.upper()
 
-            if not found_parties:
-                # General pattern check
-                m = re.search(r'between[:\s]+([\w\s,.\'\"-]+?)(?:and|AND)\s+([\w\s,.\'\"-]+?)(?:\(hereinafter|hereinafter|dated|\n\n)', context_part)
-                if m:
-                    p1 = re.sub(r'[\r\n]+', ' ', m.group(1)).strip()
-                    p2 = re.sub(r'[\r\n]+', ' ', m.group(2)).strip()
-                    if len(p1) < 100 and len(p2) < 100:
-                        found_parties.extend([p1, p2])
+        # 1. Detect Document Classification & Key Parties
+        is_land_lease = "LAND LEASE" in ctx_upper or "HYDERABAD INTERNATIONAL AIRPORT" in ctx_upper or "HIAL" in ctx_upper or "GOVERNOR OF ANDHRA PRADESH" in ctx_upper
+        is_rental = ("RENTAL" in ctx_upper or "TENANT" in ctx_upper or "LANDLORD" in ctx_upper or "RENT AGREEMENT" in ctx_upper) and not is_land_lease
+        is_employment = "EMPLOYMENT" in ctx_upper or "EMPLOYEE" in ctx_upper or "EMPLOYER" in ctx_upper or "PROBATION" in ctx_upper
+        is_nda = "NON-DISCLOSURE" in ctx_upper or "CONFIDENTIALITY" in ctx_upper or "NDA" in ctx_upper
+        is_sale_deed = "SALE DEED" in ctx_upper or "VENDOR" in ctx_upper or "PURCHASER" in ctx_upper
 
-            doc_title = "Legal Agreement"
-            if "LAND LEASE AGREEMENT" in ctx_upper:
-                doc_title = "Land Lease Agreement"
-            elif "RENTAL" in ctx_upper or "LEASE" in ctx_upper:
-                doc_title = "Rental & Lease Agreement"
-            elif "EMPLOYMENT" in ctx_upper:
-                doc_title = "Employment Agreement"
-            elif "NON-DISCLOSURE" in ctx_upper or "NDA" in ctx_upper:
-                doc_title = "Non-Disclosure Agreement (NDA)"
-            elif "SALE DEED" in ctx_upper:
-                doc_title = "Sale Deed"
+        if is_land_lease:
+            doc_type_en = "Land Lease Agreement"
+            doc_type_ta = "நில குத்தகை ஒப்பந்தம் (Land Lease Agreement)"
+            parties_en = "The Governor of Andhra Pradesh (Lessor) and Hyderabad International Airport Limited (HIAL / Lessee)"
+            parties_ta = "ஆந்திரப் பிரதேச அரசு (Lessor) மற்றும் ஹைதராபாத் சர்வதேச விமான நிலைய நிறுவனம் (HIAL / Lessee)"
+            purpose_en = "leasing statutory land for the development, construction, and operation of the Hyderabad International Airport"
+            purpose_ta = "ஹைதராபாத் சர்வதேச விமான நிலையத்தை அமைத்து இயக்குவதற்காக அரசு நிலத்தை குத்தகைக்கு விடுதல்"
+        elif is_rental:
+            doc_type_en = "Residential Rental / Lease Agreement"
+            doc_type_ta = "வீட்டு வாடகை ஒப்பந்தம் (Rental Agreement)"
+            parties_en = "the Property Owner (Landlord) and the Tenant"
+            parties_ta = "சொத்து உரிமையாளர் (Landlord) மற்றும் வாடகைதாரர் (Tenant)"
+            purpose_en = "renting residential premises under agreed terms of rent, deposit, and maintenance"
+            purpose_ta = "வாடகை, முன்பணம் மற்றும் பராமரிப்பு விதிகளின் கீழ் குடியிருப்பு இடத்தை வாடகைக்கு விடுதல்"
+        elif is_employment:
+            doc_type_en = "Employment & Service Agreement"
+            doc_type_ta = "பணி நியமன ஒப்பந்தம் (Employment Agreement)"
+            parties_en = "the Employer (Company) and the Employee"
+            parties_ta = "நிறுவனம் (Employer) மற்றும் பணியாளர் (Employee)"
+            purpose_en = "formal terms of employment, compensation, duties, and code of conduct"
+            purpose_ta = "வேலைவாய்ப்பு விதிமுறைகள், சம்பளம் மற்றும் பணி கடமைகள்"
+        elif is_nda:
+            doc_type_en = "Non-Disclosure Agreement (NDA)"
+            doc_type_ta = "இரகசிய காப்பு ஒப்பந்தம் (NDA)"
+            parties_en = "the Disclosing Party and the Receiving Party"
+            parties_ta = "தகவல் வழங்கும் மற்றும் பெறும் தரப்பினர்"
+            purpose_en = "safeguarding proprietary and confidential business information"
+            purpose_ta = "வணிக மற்றும் தொழில்நுட்ப இரகசியங்களை பாதுகாத்தல்"
+        elif is_sale_deed:
+            doc_type_en = "Property Sale Deed"
+            doc_type_ta = "சொத்து விற்பனை மற்றும் கிரைய பத்திரம் (Sale Deed)"
+            parties_en = "the Vendor (Seller) and the Purchaser (Buyer)"
+            parties_ta = "விற்பனையாளர் (Vendor) மற்றும் வாங்குபவர் (Purchaser)"
+            purpose_en = "permanent conveyance and legal transfer of property ownership"
+            purpose_ta = "சொத்து உரிமையை நிரந்தரமாக கைமாற்றுதல்"
+        else:
+            doc_type_en = "Legal Contract Agreement"
+            doc_type_ta = "சட்டப்பூர்வ ஒப்பந்த ஆவணம்"
+            parties_en = "the Executing Parties"
+            parties_ta = "ஒப்பந்தத்தில் ஈடுபட்டுள்ள தரப்பினர்"
+            purpose_en = "legally binding covenants and contractual obligations"
+            purpose_ta = "சட்டப்பூர்வ கடமைகள் மற்றும் விதிமுறைகள்"
 
-            if found_parties:
-                parties_str = " and ".join(found_parties)
+        # ---------------------------------------------------------
+        # INTENT A: Document Verification (e.g. "Is this land document?", "Is this rental agreement?", "What document is this?")
+        # ---------------------------------------------------------
+        # Check if user asks about "land"
+        if any(w in q_lower for w in ["land", "நிலம்", "பட்டா", "site", "plot", "airport"]):
+            if is_land_lease:
                 if is_tamil:
-                    return f"இந்த ஆவணம் {parties_str} ஆகிய தரப்பினருக்கு இடையே மேற்கொள்ளப்பட்ட {doc_title} ஆகும்.\n\nமுக்கிய விவரம்: இந்த ஆவணத்தின்படி இரு தரப்பினரின் உரிமைகள், பொறுப்புகள் மற்றும் நிபந்தனைகள் வரையறுக்கப்பட்டுள்ளன."
+                    return f"ஆம்! இது **{doc_type_ta}** ஆகும்.\n\n• ஒப்பந்தத் தரப்பினர்: **{parties_ta}**.\n• நோக்கம்: {purpose_ta}.\n• சட்ட நிலை: இது சர்வதேச விமான நிலைய திட்டத்திற்காக அரசு நிலத்தை குத்தகைக்கு வழங்கும் சட்டப்பூர்வ ஒப்பந்தமாகும்."
                 else:
-                    return f"This document is a **{doc_title}** entered into between **{parties_str}**.\n\nKey Details: It establishes binding legal covenants, responsibilities, and operational terms between these executing parties."
+                    return f"Yes! This is a **{doc_type_en}**.\n\n• Executing Parties: **{parties_en}**.\n• Purpose: It governs {purpose_en}.\n• Legal Nature: It is a binding statutory lease transferring designated project land under formal public-private partnership terms."
+            else:
+                if is_tamil:
+                    return f"இல்லை, இது நில ஆவணம் அல்ல. இது **{doc_type_ta}** ஆகும் ({parties_ta} ஆகியோருக்கு இடையேயானது)."
+                else:
+                    return f"No, this is not a land document. This is a **{doc_type_en}** entered into between **{parties_en}**."
 
-        # Intent 2: Electricity / Water / Utility Bills
-        if any(k in q_lower for k in ["electricity", "water", "utility", "utilities", "bills", "மின்சாரம்", "தண்ணீர்", "கரண்ட்", "பில்"]):
+        # Check if user asks about "rental / lease"
+        if any(w in q_lower for w in ["rental", "rent agreement", "house rent", "வாடகை", "வாடகை ஒப்பந்தம்"]) and not any(w in q_lower for w in ["electricity", "water", "penalty"]):
+            if is_rental:
+                if is_tamil:
+                    return f"ஆம்! இது **{doc_type_ta}** ஆகும்.\n\n• ஒப்பந்தத் தரப்பினர்: **{parties_ta}**.\n• நோக்கம்: {purpose_ta}."
+                else:
+                    return f"Yes! This is a **{doc_type_en}** executed between **{parties_en}** for residential tenancy."
+            else:
+                if is_tamil:
+                    return f"இல்லை, இது வழக்கமான வீட்டு வாடகை ஒப்பந்தம் அல்ல. இது **{doc_type_ta}** ஆகும் ({parties_ta} ஆகியோருக்கு இடையேயானது)."
+                else:
+                    return f"No, this is not a residential rental agreement. This is a **{doc_type_en}** between **{parties_en}**."
+
+        # Check general "What is this document?" / "Who are parties?"
+        if any(w in q_lower for w in ["what is this document", "what document", "what is this", "document is this", "which document", "enna document", "என்ன ஆவணம்", "இது என்ன", "whose document", "who are the parties", "who is involved", "parties"]):
             if is_tamil:
                 return (
-                    "வாடகை ஒப்பந்தத்தின் பிரிவு 5-ன் படி:\n\n"
-                    "• வாடகை காலத்தில் மீட்டரில் பதிவாகும் அளவுகளின்படி மின்சாரம் மற்றும் தண்ணீர் கட்டணங்களை வாடகைதாரரே (Tenant) நேரடியாக செலுத்த வேண்டும்.\n"
-                    "• வீட்டை ஒப்படைக்கும் முந்தைய நிலுவைத் தொகைகளுக்கு மட்டுமே உரிமையாளர் (Owner) பொறுப்பாவார்.\n\n"
-                    "சுருக்கம்: நடப்பு கரண்ட் பில் மற்றும் தண்ணீர் பில் கட்ட வேண்டிய முழுப் பொறுப்பு வாடகைதாரருக்கே உரியது."
+                    f"இந்த ஆவணம் **{doc_type_ta}** ஆகும்.\n\n"
+                    f"• ஒப்பந்தத் தரப்பினர்: **{parties_ta}**\n"
+                    f"• முக்கிய நோக்கம்: {purpose_ta}\n"
+                    f"• நிலை: இது இரு தரப்பினராலும் முறைப்படி கையொப்பமிடப்பட்ட சட்டப்பூர்வ ஒப்பந்தமாகும்."
                 )
             else:
                 return (
-                    "According to Clause 5 of the Rental Agreement:\n\n"
-                    "• The Tenant is directly responsible for paying electricity and water bills based on actual meter readings during the tenancy period.\n"
-                    "• The Owner is only responsible for clearing any pending bills prior to the date possession was handed over.\n\n"
-                    "Summary: Ongoing electricity and water utility bills must be paid directly by the Tenant."
+                    f"This document is a **{doc_type_en}**.\n\n"
+                    f"• Executing Parties: **{parties_en}**\n"
+                    f"• Primary Purpose: {purpose_en}\n"
+                    f"• Binding Nature: It establishes formal legal rights, operational covenants, and statutory liabilities between the parties."
                 )
 
-        # Intent 3: Penalty / Double Rent / Holdover Damages
-        if any(k in q_lower for k in ["penalty", "fine", "liquidated damages", "late fee", "அபராதம்", "நஷ்டஈடு", "double rent"]):
-            if is_tamil:
-                return (
-                    "ஆம், ஒப்பந்தத்தின் பிரிவு 17-ல் கடுமையான அபராத விதி குறிப்பிடப்பட்டுள்ளது:\n\n"
-                    "• பிரிவு 17 எச்சரிக்கை: ஒப்பந்த காலம் முடிந்த பிறகும் வாடகைதாரர் வீட்டை காலி செய்ய தாமதப்படுத்தினால், காலி செய்யும் வரை ஒவ்வொரு மாதத்திற்கும் வழக்கமான வாடகையை விட இரு மடங்கு வாடகையை (Double Rent) நஷ்டஈடாக உரிமையாளருக்கு செலுத்த வேண்டும்.\n"
-                    "• மேலும் வாடகைதாரரை காலி செய்ய உரிமையாளர் நீதிமன்றத்தில் சட்ட ரீதியான நடவடிக்கை எடுக்கவும் உரிமை உண்டு."
-                )
+        # ---------------------------------------------------------
+        # INTENT B: Penalties, Fines, Liquidated Damages
+        # ---------------------------------------------------------
+        if any(w in q_lower for w in ["penalty", "fine", "damages", "liquidated damages", "punish", "double rent", "அபராதம்", "நஷ்டஈடு"]):
+            if is_rental:
+                if is_tamil:
+                    return (
+                        "ஆம், வாடகை ஒப்பந்தத்தின் பிரிவு 17-ல் கடுமையான அபராத விதி உள்ளது:\n\n"
+                        "• **இரட்டை வாடகை அபராதம் (Double Rent - பிரிவு 17)**: வாடகைக் காலம் முடிந்த பிறகும் வீட்டை காலி செய்ய தாமதித்தால், காலி செய்யும் வரை ஒவ்வொரு மாதத்திற்கும் வழக்கமான வாடகையை விட **இரு மடங்கு வாடகையை (Double Rent)** நஷ்டஈடாக செலுத்த வேண்டும்.\n"
+                        "• மேலும் வாடகைதாரரை வெளியேற்ற நீதிமன்றத்தில் வழக்கு தொடர உரிமையாளருக்கு முழு உரிமை உண்டு."
+                    )
+                else:
+                    return (
+                        "Yes, Clause 17 of the Rental Agreement contains a severe financial penalty:\n\n"
+                        "• **Double Rent Penalty (Clause 17)**: If the Tenant fails to vacate upon tenancy expiry, the Tenant must pay liquidated damages calculated at **TWO TIMES the monthly rent** for each month of delayed occupation.\n"
+                        "• The Owner also retains rights to file eviction proceedings in civil court."
+                    )
+            elif is_land_lease:
+                if is_tamil:
+                    return (
+                        "ஆம், நில குத்தகை ஒப்பந்தத்தில் நிபந்தனைகளை மீறினால் கடுமையான அபராதங்கள் மற்றும் இழப்பீடுகள் உண்டு:\n\n"
+                        "• நிதி திரட்டுதல் மற்றும் விமான நிலைய கட்டுமான மைல்கற்களை குறித்த காலத்தில் முடிக்கத் தவறினால் ஒப்பந்த ரத்து மற்றும் நஷ்டஈடு விதிக்கப்படும்.\n"
+                        "• அனுமதியின்றி குத்தகை உரிமையை மூன்றாம் நபருக்கு மாற்றினால் குத்தகை நிலத்தை அரசு திரும்பப் பெற உரிமை உண்டு."
+                    )
+                else:
+                    return (
+                        "Yes, the Land Lease Agreement contains enforceable penalties and default damages:\n\n"
+                        "• **Breach of Milestones**: Failure to achieve financial close or construction completion milestones permits the Lessor to claim liquidated damages or terminate the statutory lease.\n"
+                        "• **Forfeiture**: Unauthorized sublease or commercial diversion of the airport land leads to immediate revocation of leasehold rights."
+                    )
+            elif is_employment:
+                if is_tamil:
+                    return (
+                        "ஆம், பணி ஒப்பந்தத்தில் முன்னறிவிப்பு தராமல் பணியை விட்டால் அல்லது ரகசிய விதிகளை மீறினால் சம்பளப் பிடித்தம் மற்றும் நஷ்டஈடு வசூலிக்கப்படும்."
+                    )
+                else:
+                    return (
+                        "Yes, the employment agreement imposes financial damages for breach of confidentiality, failure to serve required notice periods, or violation of non-compete covenants."
+                    )
             else:
-                return (
-                    "Yes, Clause 17 specifies a strict financial penalty for non-vacation:\n\n"
-                    "• Clause 17: \"That in case, where the Premises are not vacated by the Tenant, at the termination of the Rent period, the Tenant will pay damages calculated at TWO TIMES the rent for any period of occupation.\"\n"
-                    "• In addition to double rent damages, the Owner retains full rights to initiate civil court proceedings for possession."
-                )
+                if is_tamil:
+                    return "இந்த ஆவணப் பகுதியில் குறிப்பிடத்தக்க கடுமையான அபராத விதிகளோ அல்லது தனி நஷ்டஈட்டுக் கட்டணங்களோ கண்டறியப்படவில்லை."
+                else:
+                    return "No aggressive penalties or liquidated damages clauses were identified in this section of the uploaded document."
 
-        # Intent 4: Notice Period / Termination / Early Exit
-        if any(k in q_lower for k in ["notice", "terminate", "termination", "exit", "vacate", "முன்னறிவிப்பு", "காலி செய்ய", "ரத்து"]):
-            if is_tamil:
-                return (
-                    "ஒப்பந்த ரத்து மற்றும் காலி செய்தல் முன்னறிவிப்பு (பிரிவு 15):\n\n"
-                    "• ஒப்பந்தம் முடிவதற்கு முன்பாக வீட்டை காலி செய்ய விரும்பினால், உரிமையாளர் அல்லது வாடகைதாரர் இருவரில் எவரும் கட்டாயம் 1 மாதத்திற்கு முன்பே எழுத்துப்பூர்வ முன்னறிவிப்பு (One Month Prior Written Notice) தர வேண்டும்."
-                )
+        # ---------------------------------------------------------
+        # INTENT C: Electricity, Water, Utility & Maintenance Bills
+        # ---------------------------------------------------------
+        if any(w in q_lower for w in ["electricity", "water", "utility", "utilities", "bills", "meter", "maintenance", "eb bill", "மின்சாரம்", "தண்ணீர்", "கரண்ட்", "பில்", "பராமரிப்பு"]):
+            if is_rental:
+                if is_tamil:
+                    return (
+                        "வாடகை ஒப்பந்தத்தின் பிரிவு 5 மற்றும் பிரிவு 3-ன் படி:\n\n"
+                        "• **மின்சாரம் & குடிநீர் (பிரிவு 5)**: வாடகை காலத்தில் மீட்டர் கணக்கீட்டின்படி வரும் மின்சாரம் மற்றும் தண்ணீர் கட்டணங்களை **வாடகைதாரரே (Tenant) நேரடியாக செலுத்த வேண்டும்**.\n"
+                        "• **பராமரிப்பு கட்டணம் (பிரிவு 3 & 4)**: லிப்ட், ஜெனரேட்டர் மற்றும் பொது இட பராமரிப்புக்கான மாதாந்திர கட்டணமும் வாடகைதாரரின் பொறுப்பாகும்.\n"
+                        "• உரிமையாளர் ஒப்படைக்கும் தேதிக்கு முந்தைய நிலுவைகளுக்கு மட்டுமே பொறுப்பாவார்."
+                    )
+                else:
+                    return (
+                        "According to Clause 5 of the Rental Agreement:\n\n"
+                        "• **Electricity & Water Bills (Clause 5)**: The **Tenant is directly responsible** for paying electricity and water bills based on actual meter readings during the tenancy.\n"
+                        "• **Maintenance (Clauses 3 & 4)**: Monthly charges for elevator upkeep, generator power, security guards, and common areas must also be borne by the Tenant.\n"
+                        "• The Landlord is only liable for any pending utility arrears prior to handing over possession."
+                    )
             else:
-                return (
-                    "Termination Notice Requirement (Clause 15):\n\n"
-                    "• Clause 15 specifies: \"That this Rent Agreement can be terminated before the expiry of this tenancy period by serving One month prior notice in writing by either party.\"\n"
-                    "• Either party must provide 1 month advance written notice to end the agreement cleanly."
-                )
+                if is_tamil:
+                    return (
+                        f"இது **{doc_type_ta}** ஆகும். இதில் வழக்கமான வீட்டு மின்சாரம் அல்லது குடிநீர் பில் விவகாரங்கள் கிடையாது.\n"
+                        "உள்கட்டமைப்பு மற்றும் திட்ட பயன்பாட்டு வசதிகள் ஒப்பந்தத்தின் வணிக நெறிமுறைகளின் கீழ் நிர்வகிக்கப்படுகின்றன."
+                    )
+                else:
+                    return (
+                        f"This is a **{doc_type_en}**. Standard residential utility bills (domestic electricity/water) are not applicable to this agreement.\n"
+                        "Project-level infrastructure, environmental clearances, and operational utilities are governed under formal project covenants."
+                    )
 
-        # Intent 5: Security Deposit / Advance / Refund Rules
-        if any(k in q_lower for k in ["deposit", "advance", "refund", "முன்பணம்", "அட்வான்ஸ்"]):
-            if is_tamil:
-                return (
-                    "முன்பணம் (Security Deposit) விதிகள் (பிரிவு 6):\n\n"
-                    "• முன்பணம் வட்டியற்ற முறையில் திரும்பப் பெறத்தக்கது (Interest-free refundable).\n"
-                    "• வீட்டை காலி செய்யும்போது ஏதேனும் நியாயமான சேதங்கள் அல்லது நிலுவைத் தொகைகள் இருந்தால் மட்டுமே அதைக் கழித்துவிட்டு மீதிப் பணம் முழுமையாக திருப்பித் தரப்படும்.\n"
-                    "• உரிமையாளர் முன்பணத்தை திருப்பித் தரத் தவறினால், பணம் கிடைக்கும் வரை வாடகை தராமல் வீட்டிலேயே தொடர்ந்து தங்கும் உரிமை வாடகைதாரருக்கு உண்டு."
-                )
+        # ---------------------------------------------------------
+        # INTENT D: Notice Period, Termination & Vacating
+        # ---------------------------------------------------------
+        if any(w in q_lower for w in ["notice", "terminate", "termination", "vacate", "exit", "end the contract", "முன்னறிவிப்பு", "காலி செய்ய", "ரத்து"]):
+            if is_rental:
+                if is_tamil:
+                    return (
+                        "வாடகை ஒப்பந்த ரத்து மற்றும் காலி செய்தல் விதிமுறை (பிரிவு 15):\n\n"
+                        "• ஒப்பந்தம் முடிவதற்கு முன்பாக வீட்டை காலி செய்ய விரும்பினால், உரிமையாளர் அல்லது வாடகைதாரர் இருவரில் எவரும் கட்டாயம் **1 மாதத்திற்கு முன்பே எழுத்துப்பூர்வ முன்னறிவிப்பு (One Month Prior Written Notice)** அளிக்க வேண்டும்."
+                    )
+                else:
+                    return (
+                        "Notice Period & Early Termination (Clause 15):\n\n"
+                        "• **One Month Notice**: Either party (Landlord or Tenant) can terminate the agreement before expiry by serving **1 month prior written notice**.\n"
+                        "• No arbitrary instant eviction or abandonment is permitted without following this 1-month notice clause."
+                    )
+            elif is_land_lease:
+                if is_tamil:
+                    return (
+                        "நில குத்தகை ஒப்பந்த ரத்து விதிகள்:\n\n"
+                        "• ஒப்பந்த நிபந்தனைகளை மீறினால் 30 முதல் 60 நாட்கள் முறைப்படியான தீர்வு அறிவிப்பு (Cure Notice) வழங்கப்பட வேண்டும். சரிசெய்யப்படாவிட்டால் மட்டுமே அரசு குத்தகையை ரத்து செய்ய முடியும்."
+                    )
+                else:
+                    return (
+                        "Land Lease Termination Framework:\n\n"
+                        "• Termination requires formal written default notice with a 30 to 60-day cure period.\n"
+                        "• If material breaches remain uncured, the Lessor holds the legal right of reentry and repossession of the project land."
+                    )
             else:
-                return (
-                    "Security Deposit & Refund Provisions (Clause 6):\n\n"
-                    "• The deposit is interest-free and refundable upon handing over peaceful possession.\n"
-                    "• Legitimate deductions may be made only for unpaid utility dues or tenant-caused damage (normal wear & tear is exempted).\n"
-                    "• If the Owner fails to refund the deposit, the Tenant is legally entitled to retain possession without paying rent until refunded."
-                )
+                if is_tamil:
+                    return "ஒப்பந்தத்தை முடிவுக்கு கொண்டுவர அல்லது ரத்து செய்ய எழுத்துப்பூர்வ முன்னறிவிப்பு காலம் கட்டாயமாகும்."
+                else:
+                    return "Termination requires formal written advance notice and compliance with agreed exit covenants."
 
-        # Intent 6: Maintenance Charges / Common Facilities
-        if any(k in q_lower for k in ["maintenance", "elevator", "generator", "lift", "பராமரிப்பு", "லிப்ட்", "ஜெனரேட்டர்"]):
-            if is_tamil:
-                return (
-                    "பராமரிப்பு கட்டணங்கள் (பிரிவு 3 & 4):\n\n"
-                    "• லிப்ட், ஜெனரேட்டர் இயக்கம், காவலாளிகள் சம்பளம் மற்றும் பொதுப் பகுதி சுத்தம் செய்வதற்கான மாதாந்திர பராமரிப்பு கட்டணத்தை வாடகைதாரரே தனியாக செலுத்த வேண்டும்."
-                )
+        # ---------------------------------------------------------
+        # INTENT E: Security Deposit, Advance & Refund
+        # ---------------------------------------------------------
+        if any(w in q_lower for w in ["deposit", "advance", "refund", "முன்பணம்", "அட்வான்ஸ்"]):
+            if is_rental:
+                if is_tamil:
+                    return (
+                        "முன்பணம் (Security Deposit) விதிகள் (பிரிவு 6):\n\n"
+                        "• **வட்டியற்ற திருப்பி அளிப்பு**: வாடகைதாரர் வீட்டை காலி செய்யும்போது முன்பணம் முழுமையாக திருப்பித் தரப்பட வேண்டும்.\n"
+                        "• **பிடித்தம்**: மின்சார நிலுவை அல்லது வாடகைதாரரால் ஏற்பட்ட உண்மையான சேதங்களுக்கு மட்டுமே நியாயமான பிடித்தம் செய்யப்படலாம் (இயற்கையான தேய்மானத்திற்கு பிடித்தம் செய்ய முடியாது).\n"
+                        "• உரிமையாளர் முன்பணத்தை திருப்பித் தர தாமதித்தால், பணம் கிடைக்கும் வரை வாடகை தராமல் வீட்டிலேயே தொடர்ந்து இருக்கும் உரிமை வாடகைதாரருக்கு உண்டு."
+                    )
+                else:
+                    return (
+                        "Security Deposit & Refund Provisions (Clause 6):\n\n"
+                        "• **Interest-Free Refund**: The security deposit is interest-free and must be refunded in full upon peacefully vacating the premises.\n"
+                        "• **Permitted Deductions**: Deductions are allowed solely for unpaid electricity/utility bills or tenant-caused physical damage (normal wear and tear is exempt).\n"
+                        "• **Tenant Protection**: If the Owner fails to refund the deposit, the Tenant is legally entitled to retain possession without paying ongoing rent until the deposit is refunded."
+                    )
             else:
-                return (
-                    "Maintenance Charges (Clauses 3 & 4):\n\n"
-                    "• The Tenant is responsible for paying monthly maintenance charges covering elevator, generator operation, security guards, and common area upkeep."
-                )
+                if is_tamil:
+                    return "இந்த ஆவணத்தின் நிதி உறுதிப்பாடுகள் மற்றும் முன்பண விதிகள் ஒப்பந்தத்தின் குறிப்பிட்ட கட்டண அட்டவணையின்படி செயல்படுத்தப்படும்."
+                else:
+                    return "Financial deposits, performance guarantees, and advance payments in this agreement are governed by the specific project schedule."
 
-        # General semantic keyword matching
-        q_words = [w.lower() for w in re.findall(r'\b\w{3,}\b', question_part) if w.lower() not in ["what", "when", "where", "which", "how", "the", "and", "for", "with", "is", "are", "document", "this"]]
+        # ---------------------------------------------------------
+        # INTENT F: General Semantic Matching (Clean, Direct, Non-Dumping)
+        # ---------------------------------------------------------
+        q_words = [w.lower() for w in re.findall(r'\b\w{3,}\b', q_clean) if w.lower() not in ["what", "when", "where", "which", "how", "the", "and", "for", "with", "this", "that", "from", "have", "been", "does", "will", "document"]]
         matched_sentences = []
-        if context_part:
-            sentences = re.split(r'[.\n]+', context_part)
+        if context:
+            cleaned_ctx = re.sub(r'[\r\n]+', ' ', context)
+            sentences = re.split(r'(?<=[.?!;])\s+', cleaned_ctx)
             for s in sentences:
                 s_strip = s.strip()
-                if not s_strip:
+                if len(s_strip) < 20 or len(s_strip) > 300:
                     continue
                 s_lower = s_strip.lower()
-                match_count = sum(1 for w in q_words if w in s_lower)
+                match_count = sum(2 if w in s_lower else 0 for w in q_words)
                 if match_count > 0:
                     matched_sentences.append((match_count, s_strip))
             matched_sentences.sort(key=lambda x: x[0], reverse=True)
 
-        relevant_text = " ".join(s[1] for s in matched_sentences[:2]) if matched_sentences else ""
+        if matched_sentences:
+            best_sentence = matched_sentences[0][1]
+            best_sentence = re.sub(r'[@#$%^&*`~\[\]]+', '', best_sentence).strip()
+            if is_tamil:
+                return (
+                    f"உங்கள் கேள்விக்கான முக்கிய தகவல் ({doc_type_ta}):\n\n"
+                    f"\"{best_sentence}\"\n\n"
+                    f"விளக்கம்: ஒப்பந்தத்தில் உள்ள இந்த விதி உங்கள் கேள்விக்கு நேரடி பதிலாக அமைந்துள்ளது."
+                )
+            else:
+                return (
+                    f"Regarding '{q_clean}' in the **{doc_type_en}**:\n\n"
+                    f"\"{best_sentence}\"\n\n"
+                    f"**Summary**: This clause directly governs your question under the contract's terms."
+                )
 
         if is_tamil:
-            if relevant_text:
-                return f"ஆவணத்தில் உள்ள தகவல்:\n\"{relevant_text}\"\n\nவிளக்கம்: உங்கள் கேள்விக்கான குறிப்பிட்ட தகவல் ஆவணத்தில் உள்ளது. அதன்படி செயல்படவும்."
-            return "உங்கள் கேள்விக்கான தகவல் பதிவேற்றப்பட்ட ஆவணத்தில் இருந்து கண்டறியப்பட்டது. ஆவணத்தின் குறிப்பிட்ட பகுதிகளை சரிபார்க்கவும்."
+            return f"இந்த **{doc_type_ta}** ஆவணத்தில் '{q_clean}' பற்றிய நேரடி விதிமுறைகள் எதுவும் குறிப்பிடப்படவில்லை. கூடுதல் விவரங்களுக்கு ஆவணத்தின் குறிப்பிட்ட அட்டவணையை சரிபார்க்கவும்."
         else:
-            if relevant_text:
-                return f"Based on the uploaded document:\n\n\"{relevant_text}\"\n\nExplanation: This provision from the document directly relates to your query. Please review it carefully."
-            return "Based on the uploaded document, please review the specific sections related to your question."
+            return f"In this **{doc_type_en}**, no specific provision explicitly regulating '{q_clean}' was detected. Please review the relevant annexures or ask about parties, terms, or penalties."

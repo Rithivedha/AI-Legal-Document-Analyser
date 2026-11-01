@@ -28,15 +28,6 @@ const loadingProgress = document.getElementById('loading-progress');
 const uploadSection = document.getElementById('upload-section');
 const dashboardSection = document.getElementById('dashboard-section');
 
-// Engine Settings DOM Elements
-const engineStatus = document.getElementById('engine-status');
-const btnOpenSettings = document.getElementById('btn-open-settings');
-const btnCloseSettings = document.getElementById('btn-close-settings');
-const settingsModal = document.getElementById('settings-modal');
-const settingsProvider = document.getElementById('settings-provider');
-const settingsKeyInput = document.getElementById('settings-key-input');
-const btnSaveKey = document.getElementById('btn-save-key');
-
 const btnLangEn = document.getElementById('lang-en');
 const btnLangTa = document.getElementById('lang-ta');
 
@@ -415,64 +406,6 @@ btnMic.addEventListener('click', () => {
     else { recognition.lang = currentLang === 'ta' ? 'ta-IN' : 'en-US'; try { recognition.start(); } catch (e) { console.warn('Recognition start error:', e); } }
 });
 
-// Engine Status and Settings Management
-async function fetchEngineStatus() {
-    if (!engineStatus) return;
-    try {
-        const resp = await fetch(`${API_BASE}/api/config`);
-        if (resp.ok) {
-            const data = await resp.json();
-            engineStatus.textContent = '⚡ Engine: ' + data.active_engine;
-            engineStatus.title = `Groq: ${data.has_groq ? 'Active' : 'Not set'}, Gemini: ${data.has_gemini ? 'Active' : 'Not set'}`;
-        }
-    } catch (_) {
-        engineStatus.textContent = '⚖️ Built-in Legal Intelligence Engine';
-    }
-}
-
-if (btnOpenSettings) {
-    btnOpenSettings.addEventListener('click', () => {
-        settingsModal.classList.remove('hidden');
-    });
-}
-
-if (btnCloseSettings) {
-    btnCloseSettings.addEventListener('click', () => {
-        settingsModal.classList.add('hidden');
-    });
-}
-
-if (btnSaveKey) {
-    btnSaveKey.addEventListener('click', async () => {
-        const provider = settingsProvider.value;
-        const key = settingsKeyInput.value.trim();
-        if (!key) {
-            alert('Please enter a valid API key.');
-            return;
-        }
-        btnSaveKey.textContent = 'Saving...';
-        btnSaveKey.disabled = true;
-        try {
-            const resp = await fetch(`${API_BASE}/api/set-key`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider, api_key: key })
-            });
-            const data = await resp.json();
-            alert(data.message || 'Key saved successfully!');
-            settingsKeyInput.value = '';
-            settingsModal.classList.add('hidden');
-            fetchEngineStatus();
-        } catch (e) {
-            alert('Failed to save key: ' + e.message);
-        } finally {
-            btnSaveKey.textContent = 'Save Key';
-            btnSaveKey.disabled = false;
-        }
-    });
-}
-
-// Initialise upload handlers and engine status on page load
+// Initialise upload handlers on page load
 initUploadHandlers();
-fetchEngineStatus();
 

@@ -300,17 +300,30 @@ async def chat_pdf(request: ChatRequest):
     lang = detect_language(request.question)
     language_name = "Tamil" if lang == "ta" else "English"
 
+    # Enrich context with document overview from analysis cache
+    cached = get_result(request.doc_id)
+    doc_overview = ""
+    if cached:
+        doc_overview = f"Document Summary: {cached.get('english_summary', '')}\nTamil Summary: {cached.get('tamil_summary', '')}\n"
+        alerts = cached.get('beware_alerts', [])
+        if alerts:
+            doc_overview += "Key Alerts: " + "; ".join(a.get('alert_title_english', '') for a in alerts if a.get('alert_title_english')) + "\n"
+
+    combined_context = f"{doc_overview}\n\nDocument Provisions & Clauses:\n{context_text}" if doc_overview else context_text
+
     # Build RAG prompt
     rag_prompt = f"""
-You are a helpful AI legal assistant. Answer the following question **in {language_name}**, using only the provided context. Keep the answer simple, explain the meaning, importance, and any cautions. Do **not** fabricate information not present in the context.
+You are an expert AI Legal Assistant helping non-technical and rural citizens understand their contracts.
+Answer the question **in {language_name}** directly, accurately, and politely based on the document.
+If asked whether the document is a specific type (e.g., 'Is this a land document?'), answer directly ('Yes' or 'No') with the exact document type and parties.
 
 Context:
-{context_text}
+{combined_context}
 
 Question: {request.question}
 """
     try:
-        answer = llm.generate(rag_prompt)
+        answer = llm.generate(rag_prompt, context=combined_context, lang=lang)
     except Exception as e:
         print(f"[main] LLM chat failed: {e}")
         if lang == "ta":
