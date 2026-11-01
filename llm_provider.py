@@ -203,6 +203,7 @@ class LLMProvider:
         }
         if response_format:
             params["response_format"] = response_format
+        params["timeout"] = 8.0
 
         try:
             response = self.groq_client.chat.completions.create(**params)
@@ -230,6 +231,7 @@ class LLMProvider:
                 }
                 if response_format:
                     params["response_format"] = response_format
+                params["timeout"] = 8.0
                 response = self.openai_client.chat.completions.create(**params)
                 return response.choices[0].message.content.strip()
             except Exception as e:

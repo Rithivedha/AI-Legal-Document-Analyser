@@ -4,7 +4,6 @@ python-multipart
 python-dotenv
 pymupdf
 pypdf
-chromadb
 groq
 google-genai
 openai
