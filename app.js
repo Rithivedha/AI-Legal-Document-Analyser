@@ -91,24 +91,60 @@ const STAGES = [
     'Finalizing analysis report in English and Tamil…'
 ];
 
-// Speech Synthesis helper
+let currentSpeakingBtn = null;
+
 if (window.speechSynthesis) {
     window.speechSynthesis.getVoices();
     window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
 }
-function speakText(text, langCode) {
+
+function speakText(text, langCode, triggerBtn = null) {
     if (!window.speechSynthesis || !text) return;
+
+    // Toggle off if currently speaking from the same button
+    if (window.speechSynthesis.speaking && currentSpeakingBtn === triggerBtn) {
+        window.speechSynthesis.cancel();
+        if (triggerBtn) triggerBtn.classList.remove('playing');
+        currentSpeakingBtn = null;
+        return;
+    }
+
     window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = langCode;
+    if (currentSpeakingBtn) currentSpeakingBtn.classList.remove('playing');
+
+    // Clean markdown characters for crystal-clear natural speech
+    const cleanText = text
+        .replace(/[*_#`~[\]]/g, '')
+        .replace(/\n\s*•/g, '. ')
+        .replace(/\n+/g, '. ')
+        .trim();
+
+    const utter = new SpeechSynthesisUtterance(cleanText);
+    const resolvedLang = langCode || (isTamil(cleanText) ? 'ta-IN' : 'en-US');
+    utter.lang = resolvedLang;
+    utter.rate = 0.88; // Comfortable, natural pacing for rural/elderly comprehension
+    utter.pitch = 1.0;
+
     const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find(v => v.lang.toLowerCase().startsWith(langCode.toLowerCase().slice(0,5)));
+    const langPrefix = resolvedLang.toLowerCase().slice(0, 2);
+    const voice = voices.find(v => v.lang.toLowerCase().startsWith(langPrefix)) || voices.find(v => v.lang.toLowerCase().includes(langPrefix));
     if (voice) utter.voice = voice;
-    utter.onstart = () => { if (langCode.startsWith('ta')) btnVoiceSummary.classList.add('playing'); };
-    utter.onend = utter.onerror = () => btnVoiceSummary.classList.remove('playing');
+
+    if (triggerBtn) {
+        currentSpeakingBtn = triggerBtn;
+        triggerBtn.classList.add('playing');
+    }
+
+    utter.onend = utter.onerror = () => {
+        if (triggerBtn) triggerBtn.classList.remove('playing');
+        if (btnVoiceSummary) btnVoiceSummary.classList.remove('playing');
+        currentSpeakingBtn = null;
+    };
+
     window.speechSynthesis.speak(utter);
 }
-function isTamil(text) { return /[\u0B80-\u0BFF]/.test(text); }
+
+function isTamil(text) { return /[\u0B80-\u0BFF]/.test(text) || /tamil|தமிழில்|தமிழ்/i.test(text); }
 
 // Speech Recognition setup
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -238,8 +274,9 @@ function renderDashboard() {
     else if (score > 70) { riskLabel = 'High Risk'; riskCls = 'high'; }
     riskLevelBadge.textContent = riskLabel;
     riskLevelBadge.className = `risk-level ${riskCls}`;
-    // Reset chat welcome
-    chatMessages.innerHTML = `<div class="message system-message"><div class="message-bubble">${T[currentLang].chatWelcome}</div></div>`;
+    // Reset chat welcome with voice listen button
+    chatMessages.innerHTML = '';
+    addBubble(T[currentLang].chatWelcome, 'system');
     renderLanguageElements();
 }
 
@@ -285,15 +322,12 @@ function renderLanguageElements() {
     chatInput.placeholder = T[currentLang].placeholder;
 }
 
-// Voice summary button
+// Voice summary button (supports reading in Tamil or English based on active toggle)
 btnVoiceSummary.addEventListener('click', () => {
     if (!analysisData) return;
-    if (btnVoiceSummary.classList.contains('playing')) {
-        window.speechSynthesis && window.speechSynthesis.cancel();
-        btnVoiceSummary.classList.remove('playing');
-    } else {
-        speakText(analysisData.tamil_summary, 'ta-IN');
-    }
+    const summaryTextToRead = currentLang === 'ta' ? analysisData.tamil_summary : analysisData.english_summary;
+    const langCode = currentLang === 'ta' ? 'ta-IN' : 'en-US';
+    speakText(summaryTextToRead, langCode, btnVoiceSummary);
 });
 
 // Chat handling
@@ -304,9 +338,21 @@ function addBubble(text, role) {
     bubble.className = 'message-bubble';
     bubble.textContent = text;
     wrap.appendChild(bubble);
+
+    if (role === 'system' && text) {
+        const audioBtn = document.createElement('button');
+        audioBtn.className = 'msg-voice-btn';
+        audioBtn.innerHTML = '🔊 <span>Listen / கேள்</span>';
+        audioBtn.title = 'Read aloud / உரக்கப் படி';
+        audioBtn.onclick = () => {
+            speakText(bubble.textContent, isTamil(bubble.textContent) ? 'ta-IN' : 'en-US', audioBtn);
+        };
+        wrap.appendChild(audioBtn);
+    }
+
     chatMessages.appendChild(wrap);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-    return bubble;
+    return { bubble, wrap };
 }
 
 async function sendMessage() {
@@ -315,10 +361,12 @@ async function sendMessage() {
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     addBubble(q, 'user');
     chatInput.value = '';
-    // typing indicator
-    const thinkBubble = addBubble('', 'system');
+    
+    // Typing indicator
+    const { bubble: thinkBubble, wrap: thinkWrap } = addBubble('', 'system');
     thinkBubble.classList.add('thinking');
     thinkBubble.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+
     try {
         const payload = { doc_id: currentDocId, question: q };
         const resp = await fetch(`${API_BASE}/chat`, {
@@ -330,10 +378,23 @@ async function sendMessage() {
         const answer = data.answer || 'Error: No answer.';
         thinkBubble.classList.remove('thinking');
         thinkBubble.textContent = answer;
+
+        // Attach voice read aloud button to the response
+        const audioBtn = document.createElement('button');
+        audioBtn.className = 'msg-voice-btn';
+        audioBtn.innerHTML = '🔊 <span>Listen / கேள்</span>';
+        audioBtn.title = 'Read aloud / உரக்கப் படி';
+        audioBtn.onclick = () => {
+            speakText(answer, isTamil(answer) ? 'ta-IN' : 'en-US', audioBtn);
+        };
+        thinkWrap.appendChild(audioBtn);
+
         chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        // If user spoke via microphone, automatically read the answer aloud!
         if (isVoiceQuery) {
             isVoiceQuery = false;
-            speakText(answer, isTamil(answer) ? 'ta-IN' : 'en-US');
+            speakText(answer, isTamil(answer) ? 'ta-IN' : 'en-US', audioBtn);
         }
     } catch (err) {
         console.error(err);

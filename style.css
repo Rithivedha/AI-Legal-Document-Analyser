@@ -704,6 +704,35 @@ body {
     border-top-left-radius: 2px;
 }
 
+.msg-voice-btn {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+    background: rgba(6, 182, 212, 0.08);
+    border: 1px solid rgba(6, 182, 212, 0.25);
+    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+    color: var(--accent-color);
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.msg-voice-btn:hover {
+    background: var(--accent-color);
+    color: #000;
+}
+
+.msg-voice-btn.playing {
+    background: #10b981;
+    color: #000;
+    border-color: #10b981;
+    animation: voicePulse 1.2s ease infinite;
+}
+
 .user-message .message-bubble {
     background: var(--accent-color);
     color: #090d16;
