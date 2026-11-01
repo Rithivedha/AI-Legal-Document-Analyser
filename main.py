@@ -70,11 +70,15 @@ def detect_language(text: str, client_lang: str = "en") -> str:
     lowered = text.lower().strip()
 
     # 1. Explicit user instructions to switch to English
-    if any(k in lowered for k in ["in english", "answer in english", "explain in english", "english please", "speak english", "tell in english", "give in english", "ஆங்கிலத்தில்"]):
+    if "english" in lowered and any(w in lowered for w in ["answer", "talk", "speak", "tell", "reply", "give", "explain", "in", "please"]):
+        return "en"
+    if lowered in ["english", "in english"]:
         return "en"
 
     # 2. Explicit user instructions to switch to Tamil
-    if any(k in lowered for k in ["in tamil", "answer in tamil", "explain in tamil", "tamil please", "speak tamil", "tell in tamil", "give in tamil", "தமிழில்"]):
+    if ("tamil" in lowered and any(w in lowered for w in ["answer", "talk", "speak", "tell", "reply", "give", "explain", "in", "please"])) or any(k in lowered for k in ["தமிழில்", "தமிழ்"]):
+        return "ta"
+    if lowered in ["tamil", "in tamil"]:
         return "ta"
 
     # 3. Check for actual Tamil script characters
@@ -325,9 +329,15 @@ async def chat_pdf(request: ChatRequest):
     lang = detect_language(request.question, client_lang=request.lang or "en")
     language_name = "Tamil" if lang == "ta" else "English"
 
-    # Check for language switch follow-ups (e.g. "answer in english", "give in english")
-    is_lang_switch_en = any(p in q_lower for p in ["answer in english", "give in english", "explain in english", "in english", "tell in english", "english please", "speak in english", "to english", "ஆங்கிலத்தில்"])
-    is_lang_switch_ta = any(p in q_lower for p in ["answer in tamil", "give in tamil", "explain in tamil", "in tamil", "tell in tamil", "tamil please", "speak in tamil", "to tamil", "தமிழில்"])
+    # Check for language switch follow-ups (e.g. "answer in english", "talk in english")
+    is_lang_switch_en = (
+        ("english" in q_lower and any(w in q_lower for w in ["answer", "talk", "speak", "tell", "reply", "give", "explain", "in", "please"]))
+        or q_lower in ["english", "in english", "talk in english", "speak in english", "english please"]
+    )
+    is_lang_switch_ta = (
+        ("tamil" in q_lower and any(w in q_lower for w in ["answer", "talk", "speak", "tell", "reply", "give", "explain", "in", "please"]))
+        or any(k in q_lower for k in ["தமிழில்", "தமிழ்", "in tamil", "answer in tamil", "talk in tamil", "speak in tamil"])
+    )
 
     if is_lang_switch_en:
         lang = "en"
