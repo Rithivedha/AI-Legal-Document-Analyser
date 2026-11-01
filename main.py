@@ -297,6 +297,11 @@ Question: {request.question}
 if os.path.exists(frontend_dir):
     app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
+@app.get("/health")
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok", "service": "AI Legal Document Analyzer"}
+
 @app.get("/")
 def home():
     index_path = os.path.join(frontend_dir, "index.html")

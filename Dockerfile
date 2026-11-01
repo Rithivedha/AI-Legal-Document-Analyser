@@ -5,31 +5,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Create user for Hugging Face
-RUN useradd -m -u 1000 user
-USER user
-ENV PATH="/home/user/.local/bin:${PATH}"
-
 WORKDIR /app
 
-# Copy requirements and install python packages
-COPY --chown=user:user requirements.txt requirements.txt
-RUN pip install --no-cache-dir --upgrade -r requirements.txt
-RUN pip install --no-cache-dir groq python-multipart
+# Copy requirements first for Docker layer caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Create backend and frontend directories
-RUN mkdir -p /app/backend/uploads /app/backend/chroma_db /app/frontend
+# Copy all project code and web frontend
+COPY . .
 
-# Copy python files to /app/backend
-COPY --chown=user:user *.py /app/backend/
+# Ensure storage directories exist with write permissions
+RUN mkdir -p uploads chroma_db && chmod -R 777 uploads chroma_db
 
-# Copy frontend web files to /app/frontend
-COPY --chown=user:user index.html app.js style.css /app/frontend/
+# Default Render port is 10000; can be overridden by PORT env variable
+ENV PORT=10000
+EXPOSE 10000
 
-WORKDIR /app/backend
-
-# Expose port 7860
-EXPOSE 7860
-
-# Launch uvicorn server on port 7860
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Start Uvicorn dynamically binding to the port provided by Render ($PORT)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
