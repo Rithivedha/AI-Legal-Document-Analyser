@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import json
 import uuid
@@ -49,6 +50,7 @@ llm = LLMProvider()
 class ChatRequest(BaseModel):
     doc_id: str
     question: str
+    lang: str | None = "en"
 
 class AnalyzeResponse(BaseModel):
     doc_id: str
@@ -61,16 +63,33 @@ class KeyUpdateRequest(BaseModel):
     api_key: str
 
 # ---------------------------------------------------------------------------
-# Helper: language detection (simple Unicode/Tanglish heuristic)
+# Helper: language detection (Accurate Unicode, explicit instructions, client preference)
 # ---------------------------------------------------------------------------
-def detect_language(text: str) -> str:
-    """Return 'ta' for Tamil or Tanglish, otherwise 'en'."""
+def detect_language(text: str, client_lang: str = "en") -> str:
+    """Return 'ta' or 'en' accurately based on explicit user instruction, Tamil Unicode, or client preference."""
+    lowered = text.lower().strip()
+
+    # 1. Explicit user instructions to switch to English
+    if any(k in lowered for k in ["in english", "answer in english", "explain in english", "english please", "speak english", "tell in english", "give in english", "ஆங்கிலத்தில்"]):
+        return "en"
+
+    # 2. Explicit user instructions to switch to Tamil
+    if any(k in lowered for k in ["in tamil", "answer in tamil", "explain in tamil", "tamil please", "speak tamil", "tell in tamil", "give in tamil", "தமிழில்"]):
+        return "ta"
+
+    # 3. Check for actual Tamil script characters
     if any("\u0b80" <= ch <= "\u0bff" for ch in text):
         return "ta"
-    tanglish_keywords = ["padi", "iruku", "kaasu", "thaan", "pen", "ma", "aan", "vanakkam", "eppadi", "nandri"]
-    lowered = text.lower()
-    if any(word in lowered for word in tanglish_keywords):
+
+    # 4. Check for genuine full Tanglish greetings/words with strict word boundaries
+    tanglish_patterns = [r"\bvanakkam\b", r"\bnandri\b", r"\beppadi\b", r"\bpadithu\b", r"\btheriyuma\b", r"\bsollunga\b"]
+    if any(re.search(pat, lowered) for pat in tanglish_patterns):
         return "ta"
+
+    # 5. Respect the user's active language toggle from the UI
+    if client_lang in ["ta", "en"]:
+        return client_lang
+
     return "en"
 
 # ---------------------------------------------------------------------------
@@ -239,8 +258,18 @@ Document text:
                     fallback_data = llm._fallback_analysis(full_text, risk_score, detected_risks)
                 analysis_json[key] = fallback_data.get(key)
 
-        # Ensure risk_score is integer
-        analysis_json["risk_score"] = risk_score
+        # Ensure risk_score is integer and exactly synchronised with the explanation
+        final_score = int(analysis_json.get("risk_score") or risk_score)
+        analysis_json["risk_score"] = final_score
+
+        # Always synchronize risk explanations with the final_score so gauge and text are 100% identical
+        risks_str = ', '.join(detected_risks) if detected_risks else 'statutory covenants'
+        if final_score > 60:
+            analysis_json["risk_explanation_english"] = f"Elevated risk score of {final_score}/100 assigned due to binding covenants ({risks_str}) including damages or restrictive terms. Ensure all obligations and notice requirements are acceptable before signing."
+            analysis_json["risk_explanation_tamil"] = f"கண்டறியப்பட்ட கட்டுப்பாடுகள் ({risks_str}) காரணமாக ஆபத்து மதிப்பெண் {final_score}/100 நிர்ணயிக்கப்பட்டுள்ளது. கையெழுத்திடுவதற்கு முன் முன்னறிவிப்பு காலம் மற்றும் நஷ்டஈடு விதிகளை சரிபார்க்கவும்."
+        else:
+            analysis_json["risk_explanation_english"] = f"Moderate/Low risk score of {final_score}/100 assigned. The document contains standard customary provisions ({risks_str}) with balanced obligations."
+            analysis_json["risk_explanation_tamil"] = f"வழக்கமான சமநிலையான ஒப்பந்த விதிகள் ({risks_str}) உள்ளதால் {final_score}/100 ஆபத்து மதிப்பெண் நிர்ணயிக்கப்பட்டுள்ளது."
 
         # Cache the analysis result for retrieval
         store_result(doc_id, analysis_json)
@@ -280,6 +309,8 @@ async def get_analysis(doc_id: str):
         raise HTTPException(status_code=404, detail="Analysis not found for this document.")
     return {"analysis": result}
 
+_last_chat_topic = {}
+
 @app.post("/chat")
 async def chat_pdf(request: ChatRequest):
     """RAG chat: retrieve relevant chunks, build prompt, ask LLM.
@@ -288,23 +319,43 @@ async def chat_pdf(request: ChatRequest):
     if not request.question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    # Retrieve relevant chunks
+    q_lower = request.question.lower().strip()
+
+    # Detect language using client preference and explicit user commands
+    lang = detect_language(request.question, client_lang=request.lang or "en")
+    language_name = "Tamil" if lang == "ta" else "English"
+
+    # Check for language switch follow-ups (e.g. "answer in english", "give in english")
+    is_lang_switch_en = any(p in q_lower for p in ["answer in english", "give in english", "explain in english", "in english", "tell in english", "english please", "speak in english", "to english", "ஆங்கிலத்தில்"])
+    is_lang_switch_ta = any(p in q_lower for p in ["answer in tamil", "give in tamil", "explain in tamil", "in tamil", "tell in tamil", "tamil please", "speak in tamil", "to tamil", "தமிழில்"])
+
+    if is_lang_switch_en:
+        lang = "en"
+        language_name = "English"
+        last_topic = _last_chat_topic.get(request.doc_id, "penalties and key conditions")
+        effective_query = f"Explain the {last_topic} in clear English"
+    elif is_lang_switch_ta:
+        lang = "ta"
+        language_name = "Tamil"
+        last_topic = _last_chat_topic.get(request.doc_id, "penalties and key conditions")
+        effective_query = f"Explain the {last_topic} in clear spoken Tamil"
+    else:
+        effective_query = request.question
+        _last_chat_topic[request.doc_id] = request.question
+
+    # Retrieve relevant chunks using the effective query
     try:
-        retrieved = retrieve_chunks(request.doc_id, request.question, k=5)
+        retrieved = retrieve_chunks(request.doc_id, effective_query, k=5)
         context_text = "\n---\n".join([chunk for chunk, _ in retrieved])
     except Exception as e:
         print(f"[main] Note on retrieve_chunks: {e}")
         context_text = ""
 
-    # Detect language of question
-    lang = detect_language(request.question)
-    language_name = "Tamil" if lang == "ta" else "English"
-
     # Enrich context with document overview from analysis cache
     cached = get_result(request.doc_id)
     doc_overview = ""
     if cached:
-        doc_overview = f"Document Summary: {cached.get('english_summary', '')}\nTamil Summary: {cached.get('tamil_summary', '')}\n"
+        doc_overview = f"Document Summary: {cached.get('english_summary', '')}\nTamil Summary: {cached.get('tamil_summary', '')}\nRisk Score: {cached.get('risk_score', 0)}/100\n"
         alerts = cached.get('beware_alerts', [])
         if alerts:
             doc_overview += "Key Alerts: " + "; ".join(a.get('alert_title_english', '') for a in alerts if a.get('alert_title_english')) + "\n"
@@ -316,11 +367,12 @@ async def chat_pdf(request: ChatRequest):
 You are an expert AI Legal Assistant helping non-technical and rural citizens understand their contracts.
 Answer the question **in {language_name}** directly, accurately, and politely based on the document.
 If asked whether the document is a specific type (e.g., 'Is this a land document?'), answer directly ('Yes' or 'No') with the exact document type and parties.
+Never dump raw unformatted text fragments or boilerplate.
 
 Context:
 {combined_context}
 
-Question: {request.question}
+Question: {effective_query}
 """
     try:
         answer = llm.generate(rag_prompt, context=combined_context, lang=lang)
@@ -329,7 +381,7 @@ Question: {request.question}
         if lang == "ta":
             answer = "உங்கள் கேள்விக்கான தகவல் பரிசீலிக்கப்பட்டது. ஆவணத்தின் குறிப்பிட்ட பகுதிகளை சரிபார்த்து அதன்படி செயல்படவும்."
         else:
-            answer = f"Based on the document context, please review the specific provisions relating to '{request.question}' carefully."
+            answer = f"Based on the document context, please review the specific provisions relating to '{effective_query}' carefully."
 
     return {"answer": answer}
 

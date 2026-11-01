@@ -359,7 +359,7 @@ async function sendMessage() {
     thinkBubble.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
 
     try {
-        const payload = { doc_id: currentDocId, question: q };
+        const payload = { doc_id: currentDocId, question: q, lang: currentLang };
         const resp = await fetch(`${API_BASE}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

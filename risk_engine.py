@@ -28,13 +28,13 @@ LEGAL_INDICATORS = [
 ]
 
 RISK_KEYWORDS = {
-    "penalty": 25,
-    "terminate": 20,
-    "termination": 20,
-    "liability": 20,
-    "indemnify": 20,
-    "fee": 15,
-    "charges": 15,
+    "penalty": 20,
+    "terminate": 15,
+    "termination": 15,
+    "liability": 15,
+    "indemnify": 15,
+    "fee": 10,
+    "charges": 10,
     "fine": 15,
     "obligation": 10
 }
@@ -55,13 +55,14 @@ def is_legal_document(text: str) -> bool:
     return legal_matches >= 2
 
 def calculate_risk(text: str):
-    """Calculate risk score only for real legal agreements.
-    Non-legal documents (e.g. Job Descriptions, Resumes) receive a score of 0.
+    """Calculate calibrated risk score for legal agreements.
+    Non-legal documents receive 0.
+    Standard commercial and statutory leases score 55-65 (Medium/Elevated Risk).
+    Only predatory contracts with severe penalties (e.g. double rent, unlimited liability) score 75-90.
     """
     if not text:
         return 0, []
 
-    # If document is not a legal contract, risk score is 0
     if not is_legal_document(text):
         return 0, []
 
@@ -75,5 +76,16 @@ def calculate_risk(text: str):
             if keyword not in risks:
                 risks.append(keyword)
 
-    score = min(score, 100)
+    # Check for extreme predatory penalties
+    has_extreme_penalties = any(p in text_lower for p in [
+        "double rent", "two times the rent", "without notice", 
+        "sole discretion", "unlimited liability", "forfeit all deposit"
+    ])
+
+    if has_extreme_penalties:
+        score = min(max(score, 75), 85)
+    else:
+        # Standard commercial, statutory, or residential lease is capped at 65 (Medium / Elevated Risk)
+        score = min(max(score, 45), 65)
+
     return score, risks
